@@ -37,10 +37,10 @@ class VideoResponse(BaseModel):
 class VideoStatusResponse(BaseModel):
     task_id: str
     status: str  # processing, completed, failed, not_found
-    video_url: str = None
-    error_message: str = None
-    attempts: int = None
-    progress: str = None
+    video_url: str = ''
+    error_message: str = ''
+    attempts: int
+    progress: str = ''
 
 @app.get("/")
 async def root():
@@ -118,6 +118,7 @@ async def generate_video(request: PromptRequest, background_tasks: BackgroundTas
     except HTTPException:
         raise
     except Exception as e:
+        print(e)
         logger.error(f"Error starting video generation: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
@@ -151,9 +152,9 @@ async def get_video_status(task_id: str):
         return VideoStatusResponse(
             task_id=task_id,
             status=status,
-            video_url=video_info.get("video_url"),
-            error_message=video_info.get("error_message"),
-            attempts=video_info.get("attempts"),
+            video_url=video_info.get("video_url"), # type: ignore
+            error_message=video_info.get("error_message"), # type: ignore
+            attempts=video_info.get("attempts"), # type: ignore
             progress=progress_messages.get(status, "Unknown status")
         )
         

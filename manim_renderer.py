@@ -15,97 +15,221 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# def render_and_upload_video(prompt: str, supabase: Client, task_id: str, max_retries: int = 5):
+#     """
+#     Enhanced video rendering with better error handling and structured LLM communication
+#     """
+#     last_error = None
+#     manim_code = None
+#     fix_explanation = ""
+    
+#     try:
+#         # Update status to processing
+#         supabase.table("videos").upsert({
+#             "task_id": task_id,
+#             "status": "processing",
+#             "video_url": None
+#         }).execute()
+        
+#         for attempt in range(1, max_retries + 1):
+#             logger.info(f"Attempt {attempt}/{max_retries} for task {task_id}")
+            
+#             try:
+#                 # Generate or fix Manim code
+#                 if attempt == 1:
+#                     logger.info("Generating initial Manim code...")
+#                     manim_code, explanation = enhance_prompt_and_generate_code(prompt)
+#                     logger.info(f"Code generation explanation: {explanation}")
+#                 else:
+#                     logger.info(f"Fixing code based on error from attempt {attempt-1}...")
+#                     # Create detailed error message for LLM
+#                     error_details = format_error_for_llm(last_error, manim_code)
+#                     manim_code, fix_explanation = fix_manim_code_with_error(
+#                         manim_code or "", 
+#                         error_details, 
+#                         attempt
+#                     )
+#                     logger.info(f"Fix explanation: {fix_explanation}")
+                
+#                 # Validate code structure before attempting to render
+#                 is_valid, validation_msg = validate_manim_code(manim_code)
+#                 if not is_valid:
+#                     logger.warning(f"Code validation failed: {validation_msg}")
+#                     # Continue anyway, but log the warning
+                
+#                 logger.info(f"Generated/Fixed Manim code:\n{manim_code[:500]}...")
+                
+#                 # Attempt to render the video
+#                 video_path = render_manim_video(manim_code, task_id)
+                
+#                 # If we get here, rendering was successful
+#                 logger.info("Manim rendering successful!")
+                
+#                 # Upload to Supabase
+#                 public_url = upload_video_to_supabase(video_path, task_id, supabase)
+                
+#                 # Update database with success
+#                 supabase.table("videos").upsert({
+#                     "task_id": task_id,
+#                     "video_url": public_url,
+#                     "status": "completed",
+#                     "attempts": attempt,
+#                     "final_code": manim_code
+#                 }).execute()
+                
+#                 logger.info(f"Video successfully uploaded: {public_url}")
+#                 return public_url
+                
+#             except subprocess.CalledProcessError as e:
+#                 last_error = e
+#                 stderr_output = e.stderr if isinstance(e.stderr, str) else e.stderr.decode()
+#                 error_msg = f"Manim subprocess error: {stderr_output}"
+#                 logger.error(f"Attempt {attempt} failed with subprocess error: {error_msg}")
+                
+#                 if attempt == max_retries:
+#                     raise Exception(f"Failed to render after {max_retries} attempts. Last error: {error_msg}")
+                    
+#             except Exception as e:
+#                 last_error = e
+#                 logger.error(f"Attempt {attempt} failed with error: {str(e)}")
+                
+#                 if attempt == max_retries:
+#                     raise Exception(f"Failed to render after {max_retries} attempts. Last error: {str(e)}")
+    
+#     except Exception as e:
+#         logger.error(f"Fatal error in render_and_upload_video: {str(e)}")
+#         # Update database with error status
+#         supabase.table("videos").upsert({
+#             "task_id": task_id,
+#             "status": "failed",
+#             "error_message": str(e),
+#             "video_url": None
+#         }).execute()
+#         raise
+
+
+import logging
+import subprocess
+from typing import Tuple
+from supabase import Client
+
+# Assume client, models, system prompts, and other helper functions are defined elsewhere
+# (e.g., render_manim_video, upload_video_to_supabase, validate_manim_code, etc.)
+logger = logging.getLogger(__name__)
+
+
 def render_and_upload_video(prompt: str, supabase: Client, task_id: str, max_retries: int = 5):
     """
-    Enhanced video rendering with better error handling and structured LLM communication
+    Renders a Manim video with a robust retry and self-correction loop.
+    A successful render immediately uploads the video, updates the database, and exits.
     """
     last_error = None
     manim_code = None
-    fix_explanation = ""
     
+    # Initial status update
     try:
-        # Update status to processing
         supabase.table("videos").upsert({
             "task_id": task_id,
             "status": "processing",
-            "video_url": None
+            "video_url": None,
+            "attempts": 0,
+            "error_message": None,
         }).execute()
+    except Exception as db_error:
+        logger.error(f"Initial DB update failed for task {task_id}: {db_error}")
+        # Depending on requirements, you might want to stop here
+        # raise db_error 
+
+    for attempt in range(1, max_retries + 1):
+        logger.info(f"Attempt {attempt}/{max_retries} for task {task_id}")
         
-        for attempt in range(1, max_retries + 1):
-            logger.info(f"Attempt {attempt}/{max_retries} for task {task_id}")
+        try:
+            # Step 1: Generate or fix Manim code
+            if attempt == 1:
+                logger.info("Generating initial Manim code...")
+                manim_code, explanation = enhance_prompt_and_generate_code(prompt)
+                logger.info(f"Code generation explanation: {explanation}")
+            else:
+                logger.info(f"Fixing code based on error from attempt {attempt - 1}...")
+                # Format the last known error for the LLM
+                error_details = format_error_for_llm(last_error, manim_code) # type: ignore
+                manim_code, fix_explanation = fix_manim_code_with_error(
+                    manim_code or "", 
+                    error_details, 
+                    attempt
+                )
+                logger.info(f"Fix explanation: {fix_explanation}")
             
-            try:
-                # Generate or fix Manim code
-                if attempt == 1:
-                    logger.info("Generating initial Manim code...")
-                    manim_code, explanation = enhance_prompt_and_generate_code(prompt)
-                    logger.info(f"Code generation explanation: {explanation}")
-                else:
-                    logger.info(f"Fixing code based on error from attempt {attempt-1}...")
-                    # Create detailed error message for LLM
-                    error_details = format_error_for_llm(last_error, manim_code)
-                    manim_code, fix_explanation = fix_manim_code_with_error(
-                        manim_code or "", 
-                        error_details, 
-                        attempt
-                    )
-                    logger.info(f"Fix explanation: {fix_explanation}")
+            # Optional: Validate code structure before rendering
+            is_valid, validation_msg = validate_manim_code(manim_code)
+            if not is_valid:
+                logger.warning(f"Generated code validation failed: {validation_msg}")
+            
+            logger.info("Attempting to render the video...")
+            
+            # Step 2: Render the video
+            video_path = render_manim_video(manim_code, task_id)
+            
+            # 💡 SUCCESS! If we get here, rendering worked.
+            # The success logic is now INSIDE the loop's try block.
+            logger.info("Manim rendering successful!")
+            
+            # Step 3: Upload the successful video
+            public_url = upload_video_to_supabase(video_path, task_id, supabase)
+            
+            # Step 4: Update database with 'completed' status
+            supabase.table("videos").upsert({
+                "task_id": task_id,
+                "video_url": public_url,
+                "status": "completed",
+                "attempts": attempt,
+                "final_code": manim_code,
+                "error_message": None # Clear any previous error messages
+            }).execute()
+            
+            logger.info(f"Task {task_id} completed and video uploaded: {public_url}")
+            
+            # Step 5: Return the URL and exit the function entirely
+            return public_url
+            
+        except subprocess.CalledProcessError as e:
+            last_error = e
+            
+            # Check if stderr is bytes before decoding, otherwise use it directly.
+            if e.stderr:
+                stderr_output = e.stderr.decode(errors='ignore') if isinstance(e.stderr, bytes) else e.stderr
+            else:
+                stderr_output = "No stderr output."
                 
-                # Validate code structure before attempting to render
-                is_valid, validation_msg = validate_manim_code(manim_code)
-                if not is_valid:
-                    logger.warning(f"Code validation failed: {validation_msg}")
-                    # Continue anyway, but log the warning
-                
-                logger.info(f"Generated/Fixed Manim code:\n{manim_code[:500]}...")
-                
-                # Attempt to render the video
-                video_path = render_manim_video(manim_code, task_id)
-                
-                # If we get here, rendering was successful
-                logger.info("Manim rendering successful!")
-                
-                # Upload to Supabase
-                public_url = upload_video_to_supabase(video_path, task_id, supabase)
-                
-                # Update database with success
-                supabase.table("videos").upsert({
-                    "task_id": task_id,
-                    "video_url": public_url,
-                    "status": "completed",
-                    "attempts": attempt,
-                    "final_code": manim_code
-                }).execute()
-                
-                logger.info(f"Video successfully uploaded: {public_url}")
-                return public_url
-                
-            except subprocess.CalledProcessError as e:
-                last_error = e
-                stderr_output = e.stderr if isinstance(e.stderr, str) else e.stderr.decode()
-                error_msg = f"Manim subprocess error: {stderr_output}"
-                logger.error(f"Attempt {attempt} failed with subprocess error: {error_msg}")
-                
-                if attempt == max_retries:
-                    raise Exception(f"Failed to render after {max_retries} attempts. Last error: {error_msg}")
-                    
-            except Exception as e:
-                last_error = e
-                logger.error(f"Attempt {attempt} failed with error: {str(e)}")
-                
-                if attempt == max_retries:
-                    raise Exception(f"Failed to render after {max_retries} attempts. Last error: {str(e)}")
-    
-    except Exception as e:
-        logger.error(f"Fatal error in render_and_upload_video: {str(e)}")
-        # Update database with error status
+            error_msg = f"Manim subprocess error: {stderr_output}"
+            logger.error(f"Attempt {attempt} failed with subprocess error: {error_msg}")
+        except Exception as e:
+            last_error = e
+            error_msg = f"An unexpected error occurred: {str(e)}"
+            logger.error(f"Attempt {attempt} failed with error: {error_msg}")
+
+        # If the loop continues, update the status with the latest error
         supabase.table("videos").upsert({
             "task_id": task_id,
-            "status": "failed",
-            "error_message": str(e),
-            "video_url": None
+            "status": "processing",
+            "attempts": attempt,
+            "error_message": error_msg
         }).execute()
-        raise
+
+    # If the loop completes without a successful return, it means all retries have failed.
+    final_error_message = f"Failed to render video for task {task_id} after {max_retries} attempts."
+    logger.error(final_error_message)
+    
+    # Final update to the database to mark as 'failed'
+    supabase.table("videos").upsert({
+        "task_id": task_id,
+        "status": "failed",
+        "error_message": str(last_error), # Store the last captured error
+        "video_url": None
+    }).execute()
+    
+    # Raise an exception to signify failure to the caller
+    raise Exception(final_error_message)
 
 
 def format_error_for_llm(error: Exception, code: str) -> str:
@@ -223,7 +347,7 @@ def render_manim_video(manim_code: str, task_id: str) -> str:
         return temp_video_path
 
 
-def upload_video_to_supabase(video_path: str, task_id: str, supabase: Client) -> str:
+# def upload_video_to_supabase(video_path: str, task_id: str, supabase: Client) -> str:
     """
     Upload video file to Supabase storage and return public URL.
     """
@@ -262,6 +386,52 @@ def upload_video_to_supabase(video_path: str, task_id: str, supabase: Client) ->
     except Exception as e:
         logger.error(f"Error uploading to Supabase: {str(e)}")
         raise Exception(f"Failed to upload video to storage: {str(e)}")
+
+
+def upload_video_to_supabase(video_path: str, task_id: str, supabase: Client) -> str:
+    """
+    Uploads a video file to Supabase storage and correctly returns the public URL.
+    """
+    try:
+        # The bucket name should likely be a constant or config variable
+        bucket_name = "videosbucket"
+        file_path_in_bucket = f"{task_id}.mp4"
+
+        with open(video_path, "rb") as file:
+            # Note: For large files, consider a streaming upload if the library supports it.
+            supabase.storage.from_(bucket_name).upload(
+                path=file_path_in_bucket,
+                file=file,
+                # Using file object directly is often more memory-efficient
+                file_options={"cache-control": "3600", "upsert": "true"} # 'upsert' is often better than 'false'
+            )
+
+        logger.info(f"Upload successful for task: {task_id}")
+
+        # --- THIS IS THE FIX ---
+        # The get_public_url method returns the string directly.
+        public_url = supabase.storage.from_(bucket_name).get_public_url(file_path_in_bucket)
+
+        if not public_url:
+            # This check is still good practice in case the SDK returns None on an error
+            raise Exception("Supabase SDK returned an empty public URL.")
+
+        return public_url
+
+    except Exception as e:
+        logger.error(f"Error during Supabase operation for task {task_id}: {str(e)}")
+        # Re-raise a more specific error to be handled by the main loop
+        raise Exception(f"Failed during Supabase storage operation: {str(e)}")
+    finally:
+        # Cleanup should happen regardless of success or failure
+        try:
+            if os.path.exists(video_path):
+                os.remove(video_path)
+                logger.info(f"Cleaned up temporary file: {video_path}")
+        except Exception as cleanup_error:
+            logger.warning(f"Could not remove temporary file {video_path}: {cleanup_error}")
+
+
 
 def get_video_info(task_id: str, supabase: Client) -> dict:
     """
