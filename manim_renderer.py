@@ -128,13 +128,9 @@ def render_and_upload_video(prompt: str, supabase: Client, task_id: str, max_ret
     
     # Initial status update
     try:
-        supabase.table("videos").upsert({
-            "task_id": task_id,
+        supabase.table("videos").update({
             "status": "processing",
-            "video_url": None,
-            "attempts": 0,
-            "error_message": None,
-        }).execute()
+        }).eq("task_id", task_id).execute()
     except Exception as db_error:
         logger.error(f"Initial DB update failed for task {task_id}: {db_error}")
         # Depending on requirements, you might want to stop here
@@ -178,14 +174,13 @@ def render_and_upload_video(prompt: str, supabase: Client, task_id: str, max_ret
             public_url = upload_video_to_supabase(video_path, task_id, supabase)
             
             # Step 4: Update database with 'completed' status
-            supabase.table("videos").upsert({
-                "task_id": task_id,
+            supabase.table("videos").update({
                 "video_url": public_url,
                 "status": "completed",
                 "attempts": attempt,
                 "final_code": manim_code,
                 "error_message": None # Clear any previous error messages
-            }).execute()
+            }).eq("task_id", task_id).execute()
             
             logger.info(f"Task {task_id} completed and video uploaded: {public_url}")
             
@@ -209,24 +204,22 @@ def render_and_upload_video(prompt: str, supabase: Client, task_id: str, max_ret
             logger.error(f"Attempt {attempt} failed with error: {error_msg}")
 
         # If the loop continues, update the status with the latest error
-        supabase.table("videos").upsert({
-            "task_id": task_id,
+        supabase.table("videos").update({
             "status": "processing",
             "attempts": attempt,
             "error_message": error_msg
-        }).execute()
+        }).eq("task_id", task_id).execute()
 
     # If the loop completes without a successful return, it means all retries have failed.
     final_error_message = f"Failed to render video for task {task_id} after {max_retries} attempts."
     logger.error(final_error_message)
     
     # Final update to the database to mark as 'failed'
-    supabase.table("videos").upsert({
-        "task_id": task_id,
+    supabase.table("videos").update({
         "status": "failed",
         "error_message": str(last_error), # Store the last captured error
         "video_url": None
-    }).execute()
+    }).eq("task_id", task_id).execute()
     
     # Raise an exception to signify failure to the caller
     raise Exception(final_error_message)
@@ -445,10 +438,28 @@ def get_video_info(task_id: str, supabase: Client) -> dict:
             .execute()
 
         if result and result.data:
-            return result.data
+            data = result.data
+
+            # Fill in missing values with defaults
+            data.setdefault("video_url", "")
+            data.setdefault("error_message", "")
+            data.setdefault("attempts", 0)
+
+            return data
         else:
-            return {"status": "not_found", "message": "Task not found"}
+            return {
+                "status": "not_found",
+                "message": "Task not found",
+                "video_url": "",
+                "error_message": "",
+                "attempts": 0,
+            }
 
     except Exception as e:
         logger.error(f"Error fetching video info for task {task_id}: {str(e)}")
-        return {"status": "error", "message": f"Failed to get video info: {str(e)}"}
+        return {
+            "status": "error",
+            "error_message": f"Failed to get video info: {str(e)}",
+            "video_url": "",
+            "attempts": 0
+        }

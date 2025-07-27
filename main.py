@@ -1,4 +1,5 @@
 from fastapi import FastAPI, BackgroundTasks, HTTPException
+from typing import Optional
 from pydantic import BaseModel
 from manim_renderer import render_and_upload_video, get_video_info
 from supabase import create_client, Client
@@ -36,11 +37,11 @@ class VideoResponse(BaseModel):
 
 class VideoStatusResponse(BaseModel):
     task_id: str
-    status: str  # processing, completed, failed, not_found
-    video_url: str = ''
-    error_message: str = ''
-    attempts: int
-    progress: str = ''
+    status: str
+    video_url: Optional[str] = None
+    error_message: Optional[str] = None
+    attempts: Optional[int] = None
+    progress: str
 
 @app.get("/")
 async def root():
@@ -221,6 +222,15 @@ async def get_video_url_legacy(task_id: str):
         if e.status_code == 404:
             return {"status": "not_found", "video_url": None}
         raise
+
+@app.get("/videos/completed")
+def get_completed_videos():
+    'Get all the video that are genesrated successfully'
+    try:
+        response = supabase.table("videos").select("id,prompt,video_url,quality").eq("status", "completed").execute()
+        return {"data": response.data}
+    except Exception as e:
+        return {"error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
