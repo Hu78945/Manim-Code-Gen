@@ -1,9 +1,13 @@
 import { type NextRequest, NextResponse } from "next/server"
 import axios from "axios"
 
-export async function GET(request: NextRequest, { params }: { params: { taskId: string } }) {
+export async function GET(
+    request: NextRequest,
+    { params }: { params: Promise<{ taskId: string }> }
+) {
     try {
-        const { taskId } = params
+        // Await the params in Next.js 15 ok
+        const { taskId } = await params
 
         // Call your actual status check API
         const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}video-status/${taskId}`, {
