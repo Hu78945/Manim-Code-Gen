@@ -13,3 +13,4 @@ httpx
 
 # Optional: For async tasks or rich output (commonly used with Manim)
 rich
+openai
