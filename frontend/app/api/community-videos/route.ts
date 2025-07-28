@@ -4,7 +4,7 @@ import axios from "axios"
 export async function GET() {
     try {
         // Call your actual community videos API
-        const response = await axios.get("http://127.0.0.1:8000/videos/completed", {
+        const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}videos/completed`, {
             headers: {
                 accept: "application/json",
             },

@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
 
         // Call your actual video generation API
         const response = await axios.post(
-            "http://127.0.0.1:8000/generate-video/",
+            `${process.env.NEXT_PUBLIC_API_URL}generate-video/`,
             {
                 prompt,
                 quality,

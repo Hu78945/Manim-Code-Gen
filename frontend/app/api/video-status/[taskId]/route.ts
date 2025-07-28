@@ -6,7 +6,7 @@ export async function GET(request: NextRequest, { params }: { params: { taskId: 
         const { taskId } = params
 
         // Call your actual status check API
-        const response = await axios.get(`http://127.0.0.1:8000/video-status/${taskId}`, {
+        const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}video-status/${taskId}`, {
             headers: {
                 accept: "application/json",
             },
