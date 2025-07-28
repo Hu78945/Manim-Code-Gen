@@ -1,4 +1,5 @@
 attrs==23.2.0
+uvicorn[standard]
 Automat==22.10.0
 Babel==2.10.3
 bcrypt==3.2.2
